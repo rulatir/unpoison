@@ -254,6 +254,27 @@ run_ffmpeg() {
         done
         
         chmod +x "$worker_script"
+        # Immediate resumption check right before handing control to the worker:
+        # If any expected final already exists, snapshot this worker for later re-run and skip executing it now.
+        for __dst_size in "${target_sizes[@]}"; do
+            __dst="$dst_dir/$dir_name/${base_name}-${__dst_size}p.mp4"
+            if [[ -f "${__dst}" ]]; then
+                 interrupted_worker_script="interrupted-$worker_script"
+                 cp -f "$worker_script" "$interrupted_worker_script"
+                 chmod +x "$interrupted_worker_script" 2>/dev/null || true
+                 echo "Wrote interrupted worker snapshot: $interrupted_worker_script" >&2
+                 # Skip running this worker and continue with the next input file
+                 continue 2
+             fi
+        done
         bash "$worker_script"
     fi
 done
+
+# --- End of main processing: execute and remove interrupted snapshot if present ---
+# Only execute the snapshot if the in-memory variable was set when the snapshot was created.
+if [[ -n "${interrupted_worker_script:-}" && -f "$interrupted_worker_script" ]]; then
+    echo "Executing interrupted worker script: $interrupted_worker_script" >&2
+    bash "$interrupted_worker_script"
+    rm -f "$interrupted_worker_script"
+fi
